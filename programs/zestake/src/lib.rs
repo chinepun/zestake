@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 
-declare_id!("4cS8pM5n6gSndA4PdpixesVHTmRPyd7TnYC81oEjSfEB");
+declare_id!("Cftyb3MtY2iTtb5JWrt2JtMbek1Gtwt4wUr8DZbLaVzB");
 
 #[program]
 pub mod zestake {
@@ -9,6 +9,16 @@ pub mod zestake {
 
     pub fn create_user(ctx: Context<CreateUser>, mint_address: Pubkey, x_mint_address: Pubkey) -> Result<()>
     {
+        let user = &mut ctx.accounts.user;
+
+        user.owner = ctx.accounts.owner.key();
+        user.amount_staked = 0;
+        user.last_staked_time = 0;
+
+        user.stake_account = ctx.accounts.stake_account.key();
+        user.x_stake_account = ctx.accounts.x_stake_account.key();
+        msg!("user created at address {} for pubkey {}", user.key(), ctx.accounts.owner.key());
+
         Ok(())
     }
 }
@@ -27,14 +37,24 @@ pub struct CreateUser<'info>
     user: Account<'info, User>,
 
     #[account(address = mint_address)]
-    x_mint: Account<'info, Mint>,
+    mint: Account<'info, Mint>,
 
     #[account(mut,
-        constraint = stake_account.mint == x_mint.key(),
+        constraint = stake_account.mint  == mint.key(),
         constraint = stake_account.owner == owner.key()
     )]
     stake_account: Account<'info, TokenAccount>,
         
+    #[account(address = x_mint_address)]
+    x_mint: Account<'info, Mint>,
+
+    #[account(mut,
+        constraint = x_stake_account.mint  == x_mint.key(),
+        constraint = x_stake_account.owner == owner.key()
+    )]
+    x_stake_account: Account<'info, TokenAccount>,
+
+
     /// sysvars
     #[account(address = token::ID)]
     pub token_program: Program<'info, Token>,
