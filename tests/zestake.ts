@@ -1,11 +1,11 @@
 import * as anchor from "@project-serum/anchor";
-import { createMint, getAccount, TOKEN_PROGRAM_ID, getOrCreateAssociatedTokenAccount } from "@solana/spl-token"
-import { Program } from "@project-serum/anchor";
+import { createMint, getAccount, TOKEN_PROGRAM_ID, getOrCreateAssociatedTokenAccount, mintTo, createMintToInstruction, mintToChecked } from "@solana/spl-token"
+import { AnchorError, Program } from "@project-serum/anchor";
 import { Zestake } from "../target/types/zestake";
 import mint_keypair from '../key/mint.json';
 // Read .env into process.env
 import { min } from "bn.js";
-import { PublicKey, SystemProgram } from "@solana/web3.js";
+import { PublicKey, SystemProgram, SYSVAR_CLOCK_PUBKEY, SYSVAR_RENT_PUBKEY, Transaction, TransactionInstruction } from "@solana/web3.js";
 
 
 //const program = new anchor.Program(idl, programId);
@@ -86,6 +86,7 @@ describe("zestake", () => {
 
   it("Create New User", async () => {
     // Add your test here.
+//    let usern = anchor.web3.Keypair.generate()
     const tx = await program.methods.createUser(mint, x_mint).
     accounts({
       owner: provider.wallet.publicKey,
@@ -97,6 +98,12 @@ describe("zestake", () => {
       tokenProgram: TOKEN_PROGRAM_ID,
       systemProgram: anchor.web3.SystemProgram.programId
     })
+    // .instruction([
+    //   await program.account.usern.createInstruction(
+    //     usern,
+    //     8 + 32 + 8 + 16 + 32 + 32
+    //   )
+    // ])
     .signers([user])
     .rpc();
     console.log("Your transaction signature", tx);
@@ -112,4 +119,265 @@ describe("zestake", () => {
     console.log("Tests passed");
 
   });
+
+  it("User Stakes first time but without funds", async () => {
+    const [programPDA, programPDABump] = await PublicKey.findProgramAddress(
+      [
+        anchor.utils.bytes.utf8.encode('program_authority'),
+        mint.toBuffer(),
+        x_mint.toBuffer(),
+      ], program.programId
+   )
+
+    const [programTokenPDA, programTokenPDABump] = await PublicKey.findProgramAddress(
+      [
+        anchor.utils.bytes.utf8.encode('program_authority_stake_account'),
+        mint.toBuffer(),
+        x_mint.toBuffer()
+      ], program.programId
+    );
+    try{
+      const tx = await program.methods.stake(new anchor.BN(programPDABump), new anchor.BN(20))
+      .accounts(
+        {
+          owner: provider.wallet.publicKey,
+          programAuthority: programPDA,
+          programAuthorityStakeAccount: programTokenPDA,
+          user: user.publicKey,
+          mint: mint,
+          xMint: x_mint,
+          mintTokens: provider_mint_token_account.address,
+          xMintTokens: provider_x_mint_token_account.address,
+        
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+          clock: SYSVAR_CLOCK_PUBKEY,
+        })
+        .signers([])
+        .rpc();
+
+      console.log("stake signature is ", tx);
+    }catch(err){
+      const errMsg = "You do not own up to this amount you are trying to withdraw";
+      assert.equal((err as AnchorError).error.errorMessage, errMsg)
+    }
+  })
+
+  it ("Pass fake owner to stake ", async () => {
+    const [programPDA, programPDABump] = await PublicKey.findProgramAddress(
+      [
+        anchor.utils.bytes.utf8.encode('program_authority'),
+        mint.toBuffer(),
+        x_mint.toBuffer(),
+      ], program.programId
+   )
+
+    const [programTokenPDA, programTokenPDABump] = await PublicKey.findProgramAddress(
+      [
+        anchor.utils.bytes.utf8.encode('program_authority_stake_account'),
+        mint.toBuffer(),
+        x_mint.toBuffer()
+      ], program.programId
+    );
+    
+    const fake_owner_keypair = anchor.web3.Keypair.generate();
+    
+    var transaction = new anchor.web3.Transaction().add(
+      anchor.web3.SystemProgram.transfer({
+          fromPubkey: provider.wallet.publicKey,
+          toPubkey: fake_owner_keypair.publicKey,
+          lamports: anchor.web3.LAMPORTS_PER_SOL / 100,
+      })
+    );
+
+    await provider.sendAndConfirm(transaction);
+    console.log("funded fake owner wallet has ", await provider.connection.getBalance(fake_owner_keypair.publicKey));
+    try{
+      const tx = await program.methods.stake(new anchor.BN(programPDABump), new anchor.BN(20))
+      .accounts(
+        {
+          owner: fake_owner_keypair.publicKey,
+          programAuthority: programPDA,
+          programAuthorityStakeAccount: programTokenPDA,
+          user: user.publicKey,
+          mint: mint,
+          xMint: x_mint,
+          mintTokens: provider_mint_token_account.address,
+          xMintTokens: provider_x_mint_token_account.address,
+        
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+          clock: SYSVAR_CLOCK_PUBKEY,
+        })
+        .signers([fake_owner_keypair])
+        .rpc();
+
+      console.log("stake signature is ", tx);
+    }catch(err){
+      const errMsg = "A has one constraint was violated";
+      assert.equal((err as AnchorError).error.errorMessage, errMsg)
+    }
+  });
+
+  it ("Pass in legit owner but malicious tokenaccount(s)", async () => {
+    const attacker = anchor.web3.Keypair.generate();
+    const attacker_user = anchor.web3.Keypair.generate();
+
+    var transaction = new anchor.web3.Transaction().add(
+      anchor.web3.SystemProgram.transfer({
+          fromPubkey: provider.wallet.publicKey,
+          toPubkey: attacker.publicKey,
+          lamports: anchor.web3.LAMPORTS_PER_SOL / 100,
+      })
+    );
+
+    await provider.sendAndConfirm(transaction);
+    
+    const attacker_token_account = await getOrCreateAssociatedTokenAccount(
+      provider.connection,
+      mintAccount,
+      mint,
+      attacker.publicKey
+    );
+    console.log("Attacker mint token account is ", attacker_token_account.address.toString());
+
+    const attacker_x_token_account = await getOrCreateAssociatedTokenAccount(
+      provider.connection,
+      mintAccount,
+      x_mint,
+      attacker.publicKey
+    );
+    console.log("Attacker x_mint token account is ", attacker_x_token_account.address.toString());
+
+    console.log('creating attacker user account');
+    const tx = await program.methods.createUser(mint, x_mint).
+    accounts({
+      owner: attacker.publicKey,
+      user: attacker_user.publicKey,
+      mint: mint,
+      stakeAccount: attacker_token_account.address,
+      xMint: x_mint,
+      xStakeAccount: attacker_x_token_account.address,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      systemProgram: anchor.web3.SystemProgram.programId
+    })
+    .signers([attacker, attacker_user])
+    .rpc();
+
+    console.log('calling stake instruction passing it invalid keys')
+
+    const [programPDA, programPDABump] = await PublicKey.findProgramAddress(
+      [
+        anchor.utils.bytes.utf8.encode('program_authority'),
+        mint.toBuffer(),
+        x_mint.toBuffer(),
+      ], program.programId
+   )
+
+    const [programTokenPDA, programTokenPDABump] = await PublicKey.findProgramAddress(
+      [
+        anchor.utils.bytes.utf8.encode('program_authority_stake_account'),
+        mint.toBuffer(),
+        x_mint.toBuffer()
+      ], program.programId
+    );
+    console.log('invalid mintTokens')
+    try{
+      const tx = await program.methods.stake(new anchor.BN(programPDABump), new anchor.BN(20))
+      .accounts(
+        {
+          owner: attacker.publicKey,
+          programAuthority: programPDA,
+          programAuthorityStakeAccount: programTokenPDA,
+          user: attacker_user.publicKey,
+          mint: mint,
+          xMint: x_mint,
+          mintTokens: provider_mint_token_account.address,
+          xMintTokens: attacker_x_token_account.address,
+        
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+          clock: SYSVAR_CLOCK_PUBKEY,
+        })
+        .signers([attacker])
+        .rpc();
+
+      console.log("stake signature is ", tx);
+    }catch(err){
+      const errMsg = "InvalidAccountData, pass correct accounts";
+      assert.equal((err as AnchorError).error.errorMessage, errMsg)
+    }
+  });
+
+  it ('user is able to stake because of sufficient funds', async () => {
+    console.log('minting tokens to user');
+    // let mintInstruction = await createMintToInstruction(
+    //   mint,
+    //   provider_mint_token_account,
+    //   mint.owner,
+    //   10000,
+    //   [mintAccount],
+    //   TOKEN_PROGRAM_ID
+    //   );
+      console.log("here")
+    // await provider.sendAndConfirm(new Transaction().add(mintInstruction));
+    
+    await mintToChecked(
+      provider.connection,
+      mintAccount,
+      mint,
+      provider_mint_token_account.address,
+      mintAccount,
+      10000,
+      6
+      )
+
+
+    const [programPDA, programPDABump] = await PublicKey.findProgramAddress(
+      [
+        anchor.utils.bytes.utf8.encode('program_authority'),
+        mint.toBuffer(),
+        x_mint.toBuffer(),
+      ], program.programId
+    )
+
+    const [programTokenPDA, programTokenPDABump] = await PublicKey.findProgramAddress(
+      [
+        anchor.utils.bytes.utf8.encode('program_authority_stake_account'),
+        mint.toBuffer(),
+        x_mint.toBuffer()
+      ], program.programId
+    );
+    console.log("hereJ")
+    try{
+      const tx = await program.methods.stake(new anchor.BN(programPDABump), new anchor.BN(20))
+      .accounts(
+        {
+          owner: provider.wallet.publicKey,
+          programAuthority: programPDA,
+          programAuthorityStakeAccount: programTokenPDA,
+          user: user.publicKey,
+          mint: mint,
+          xMint: x_mint,
+          mintTokens: provider_mint_token_account.address,
+          xMintTokens: provider_x_mint_token_account.address,
+        
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+          clock: SYSVAR_CLOCK_PUBKEY,
+        })
+        .signers([])
+        .rpc();
+
+      console.log("stake signature is ", tx);
+    }catch(err){
+      const errMsg = "You do not own up to this amount you are trying to withdraw";
+      assert.equal((err as AnchorError).error.errorMessage, errMsg)
+    }
+  })
+
 });
