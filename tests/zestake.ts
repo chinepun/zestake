@@ -333,7 +333,7 @@ describe("zestake", () => {
       console.log("here")
     // await provider.sendAndConfirm(new Transaction().add(mintInstruction));
     
-    provider_amount = 9 * 10 ** 6;
+    provider_amount = 20 * 10 ** 6;
     console.log(`minting ${provider_amount} tokens to user so he can stake part of thos tokens`);
     const amount_to_stake = 6 * 10 ** 6;
     console.log(`staking ${amount_to_stake} tokens `);
@@ -397,7 +397,7 @@ describe("zestake", () => {
     const pdaAmount = await provider.connection.getTokenAccountBalance(programTokenPDA);
 
     assert.equal(userAccount.stakeAccount.toString(), provider_mint_token_account.address.toString())
-    assert.equal(userAmount.value.uiAmount, 3);
+    assert.equal(userAmount.value.uiAmount, 14);
     assert.equal(pdaAmount.value.uiAmount, 6);
 
   })
@@ -425,7 +425,7 @@ describe("zestake", () => {
     console.log("PDA BALANCE", await provider.connection.getBalance(programPDA))
     console.log("is ", programPDA.toString())
 
-    const amount_to_unstake = 5 * 10 ** 6;
+    const amount_to_unstake = 2 * 10 ** 6;
     console.log(`unstaking ${amount_to_unstake} tokens `);
     
     try{
@@ -455,10 +455,71 @@ describe("zestake", () => {
       const pdaAmount = await provider.connection.getTokenAccountBalance(programTokenPDA);
   
       assert.equal(userAccount.stakeAccount.toString(), provider_mint_token_account.address.toString())
-      assert.equal(userAmount.value.uiAmount, 8);
-      assert.equal(pdaAmount.value.uiAmount, 1);
-  console.log('did you pass');
+      assert.equal(userAmount.value.uiAmount, 16);
+      assert.equal(pdaAmount.value.uiAmount, 4);
+    console.log('did you pass');
+
+
   })
+
+  it ('pass fake owner to unstake ', async () => {
+    const [programPDA, programPDABump] = await PublicKey.findProgramAddress(
+      [
+        anchor.utils.bytes.utf8.encode('program_authority'),
+        mint.toBuffer(),
+        x_mint.toBuffer(),
+      ], program.programId
+   )
+
+    const [programTokenPDA, programTokenPDABump] = await PublicKey.findProgramAddress(
+      [
+        anchor.utils.bytes.utf8.encode('program_authority_stake_account'),
+        mint.toBuffer(),
+        x_mint.toBuffer()
+      ], program.programId
+    );
+    const fake_owner_keypair = anchor.web3.Keypair.generate();
+    
+    const transaction = new anchor.web3.Transaction().add(
+      anchor.web3.SystemProgram.transfer({
+          fromPubkey: provider.wallet.publicKey,
+          toPubkey: fake_owner_keypair.publicKey,
+          lamports: anchor.web3.LAMPORTS_PER_SOL / 100,
+      })
+    );
+    const amount_to_unstake = 1 * 10 ** 6;
+
+    await provider.sendAndConfirm(transaction);
+    console.log("funded fake owner wallet has ", await provider.connection.getBalance(fake_owner_keypair.publicKey));
+    try{
+      const tx = await program.methods.unstake(new anchor.BN(programPDABump), new anchor.BN(programTokenPDABump), new anchor.BN(amount_to_unstake))
+    .accounts(
+      {
+        owner: fake_owner_keypair.publicKey,
+        programAuthority: programPDA,
+        programAuthorityStakeAccount: programTokenPDA,
+        user: user.publicKey,
+        mint: mint,
+        xMint: x_mint,
+        mintTokens: provider_mint_token_account.address,
+        xMintTokens: provider_x_mint_token_account.address,
+      
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+        rent: SYSVAR_RENT_PUBKEY,
+        clock: SYSVAR_CLOCK_PUBKEY,
+      })
+      .signers([fake_owner_keypair])
+      .rpc();
+    }catch(err) 
+    {
+      const errMsg = "A has one constraint was violated";
+      assert.equal((err as AnchorError).error.errorMessage, errMsg)
+
+    }
+
+  })
+
 
   it ('user tries to predict some future event', async () => {
     console.log("'Let's first create user prediction account")
@@ -501,7 +562,5 @@ describe("zestake", () => {
     assert.equal(predictAccount.amount, amount);
        
   })
-
-
 
 });

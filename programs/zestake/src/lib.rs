@@ -127,10 +127,6 @@ msg!("pda has {} tokens before transfer", ctx.accounts.program_authority_stake_a
                 Err(_) => return Err(ErrorCode::TransferNotSuccessful.into()),
             }
 
-            // msg!("i think i just sent {} of {} tokens from pda pda {}", amount, ctx.accounts.program_authority_stake_account.owner, ctx.accounts.mint_tokens.key());
-
-            // msg!("user has {} tokens after transfer", ctx.accounts.mint_tokens.amount);
-            // msg!("pda has {} tokens after transfer", ctx.accounts.program_authority_stake_account.amount);
 
         }
         // burn x_mint tokens on the frontend from x_stake_account
