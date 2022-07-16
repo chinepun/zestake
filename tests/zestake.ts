@@ -3,16 +3,18 @@ import { createMint, getAccount, TOKEN_PROGRAM_ID, getOrCreateAssociatedTokenAcc
 import { AnchorError, Program } from "@project-serum/anchor";
 import { Zestake } from "../target/types/zestake";
 import mint_keypair from '../key/mint.json';
-// Read .env into process.env
-import { min } from "bn.js";
-import { PublicKey, SystemProgram, SYSVAR_CLOCK_PUBKEY, SYSVAR_RENT_PUBKEY, Transaction, TransactionInstruction } from "@solana/web3.js";
 
+import { PublicKey, clusterApiUrl, SystemProgram, SYSVAR_CLOCK_PUBKEY, SYSVAR_RENT_PUBKEY, Transaction, TransactionInstruction, Connection } from "@solana/web3.js";
+
+// import { SwitchboardTestEnvironment } from "@switchboard-xyz/sbv2-utils";
+// import { SwitchboardTestContext } from "@switchboard-xyz/sbv2-utils";
 
 //const program = new anchor.Program(idl, programId);
 const { assert } = require('chai');
 
 const mint_secret = new Uint8Array(mint_keypair);
 const mintAccount = anchor.web3.Keypair.fromSecretKey(mint_secret);
+
 console.log("mint wallet account = ", mintAccount.publicKey.toString())
 
 describe("zestake", () => {
@@ -29,7 +31,14 @@ describe("zestake", () => {
   // let stakeAccount, xStakeAccount;
   let provider_mint_token_account, provider_x_mint_token_account;
 
+  let provider_amount: any;
   before(async () => {
+    // const testEnvironment = await SwitchboardTestEnvironment.create(
+    //   "../key/mint.json"
+    // );
+    // testEnvironment.writeAll(".switchboard");
+    
+
     var transaction = new anchor.web3.Transaction().add(
       anchor.web3.SystemProgram.transfer({
           fromPubkey: provider.wallet.publicKey,
@@ -313,7 +322,6 @@ describe("zestake", () => {
   });
 
   it ('user is able to stake because of sufficient funds', async () => {
-    console.log('minting tokens to user');
     // let mintInstruction = await createMintToInstruction(
     //   mint,
     //   provider_mint_token_account,
@@ -325,13 +333,18 @@ describe("zestake", () => {
       console.log("here")
     // await provider.sendAndConfirm(new Transaction().add(mintInstruction));
     
+    provider_amount = 9 * 10 ** 6;
+    console.log(`minting ${provider_amount} tokens to user so he can stake part of thos tokens`);
+    const amount_to_stake = 6 * 10 ** 6;
+    console.log(`staking ${amount_to_stake} tokens `);
+
     await mintToChecked(
       provider.connection,
       mintAccount,
       mint,
       provider_mint_token_account.address,
       mintAccount,
-      10000,
+      provider_amount,
       6
       )
 
@@ -351,9 +364,10 @@ describe("zestake", () => {
         x_mint.toBuffer()
       ], program.programId
     );
-    console.log("hereJ")
+
+
     try{
-      const tx = await program.methods.stake(new anchor.BN(programPDABump), new anchor.BN(20))
+      const tx = await program.methods.stake(new anchor.BN(programPDABump), new anchor.BN(amount_to_stake))
       .accounts(
         {
           owner: provider.wallet.publicKey,
@@ -378,6 +392,116 @@ describe("zestake", () => {
       const errMsg = "You do not own up to this amount you are trying to withdraw";
       assert.equal((err as AnchorError).error.errorMessage, errMsg)
     }
+    const userAccount = await program.account.user.fetch(user.publicKey);
+    const userAmount = await provider.connection.getTokenAccountBalance(provider_mint_token_account.address);
+    const pdaAmount = await provider.connection.getTokenAccountBalance(programTokenPDA);
+
+    assert.equal(userAccount.stakeAccount.toString(), provider_mint_token_account.address.toString())
+    assert.equal(userAmount.value.uiAmount, 3);
+    assert.equal(pdaAmount.value.uiAmount, 6);
+
   })
+
+  it ('user is able to unstake ', async() => {
+
+    const [programPDA, programPDABump] = await PublicKey.findProgramAddress(
+      [
+        anchor.utils.bytes.utf8.encode('program_authority'),
+        mint.toBuffer(),
+        x_mint.toBuffer(),
+      ], program.programId
+    )
+
+    const [programTokenPDA, programTokenPDABump] = await PublicKey.findProgramAddress(
+      [
+        anchor.utils.bytes.utf8.encode('program_authority_stake_account'),
+        mint.toBuffer(),
+        x_mint.toBuffer()
+      ], program.programId
+    );
+
+    console.log("PDA BALANCE(Token)", await provider.connection.getBalance(programTokenPDA))
+    console.log("is ", programTokenPDA.toString())
+    console.log("PDA BALANCE", await provider.connection.getBalance(programPDA))
+    console.log("is ", programPDA.toString())
+
+    const amount_to_unstake = 5 * 10 ** 6;
+    console.log(`unstaking ${amount_to_unstake} tokens `);
+    
+    try{
+      const tx = await program.methods.unstake(new anchor.BN(programPDABump), new anchor.BN(programTokenPDABump), new anchor.BN(amount_to_unstake))
+    .accounts(
+      {
+        owner: provider.wallet.publicKey,
+        programAuthority: programPDA,
+        programAuthorityStakeAccount: programTokenPDA,
+        user: user.publicKey,
+        mint: mint,
+        xMint: x_mint,
+        mintTokens: provider_mint_token_account.address,
+        xMintTokens: provider_x_mint_token_account.address,
+      
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+        rent: SYSVAR_RENT_PUBKEY,
+        clock: SYSVAR_CLOCK_PUBKEY,
+      })
+      .signers([])
+      .rpc();
+    }catch(err) {console.log("Error ", err)}
+
+      const userAccount = await program.account.user.fetch(user.publicKey);
+      const userAmount = await provider.connection.getTokenAccountBalance(provider_mint_token_account.address);
+      const pdaAmount = await provider.connection.getTokenAccountBalance(programTokenPDA);
+  
+      assert.equal(userAccount.stakeAccount.toString(), provider_mint_token_account.address.toString())
+      assert.equal(userAmount.value.uiAmount, 8);
+      assert.equal(pdaAmount.value.uiAmount, 1);
+  console.log('did you pass');
+  })
+
+  it ('user tries to predict some future event', async () => {
+    console.log("'Let's first create user prediction account")
+    const provider_predict_account = anchor.web3.Keypair.generate();
+    let prediction_of_sol_usd_price_feed = 35;
+    let odds = 1.5;
+    let amount = 250.0;
+    let  tx = await program.methods.createPredictAccount()
+               .accounts(
+                {
+                  user: provider.wallet.publicKey,
+                  predictInfo: provider_predict_account.publicKey,
+                  systemProgram: SystemProgram.programId,
+                })
+                .signers([provider_predict_account])
+                .rpc();
+
+    let predictAccount = await program.account.predictInfo.fetch(provider_predict_account.publicKey);
+
+    assert.equal(predictAccount.data.toNumber(), 0);
+    assert.equal(predictAccount.owner.toString(), provider.wallet.publicKey.toString());
+    assert.equal(predictAccount.odds, 0)
+    assert.equal(predictAccount.amount, 0);
+              
+    console.log("let's read on chain data");
+
+    tx = await program.methods.predict(new anchor.BN(prediction_of_sol_usd_price_feed), odds, amount)
+          .accounts(
+            {
+              owner: provider.wallet.publicKey,
+              predictInfo: provider_predict_account.publicKey,
+              systemProgram: SystemProgram.programId
+            }
+          ).signers([]).rpc();
+    predictAccount = await program.account.predictInfo.fetch(provider_predict_account.publicKey);
+
+    assert.equal(predictAccount.data.toNumber(), prediction_of_sol_usd_price_feed);
+    assert.equal(predictAccount.owner.toString(), provider.wallet.publicKey.toString());
+    assert.equal(predictAccount.odds, odds)
+    assert.equal(predictAccount.amount, amount);
+       
+  })
+
+
 
 });

@@ -1,0 +1,40 @@
+// import { SwitchboardTestEnvironment } from "@switchboard-xyz/sbv2-utils";
+// import { SwitchboardTestContext } from "@switchboard-xyz/sbv2-utils";
+import {
+    AggregatorAccount,
+    loadSwitchboardProgram,
+  } from "@switchboard-xyz/switchboard-v2";
+import { PublicKey, Keypair, clusterApiUrl, SystemProgram, SYSVAR_CLOCK_PUBKEY, SYSVAR_RENT_PUBKEY, Connection, Transaction, TransactionInstruction } from "@solana/web3.js";
+
+
+// Anchor.toml will copy this to localnet when we start our tests
+const DEFAULT_SOL_USD_FEED = new PublicKey(
+    "GvDMxPzN1sCj7L26YDK2HnMRXEQmQ2aemov8YBtPS7vR"
+  );
+async function main()
+{
+    const program = await loadSwitchboardProgram(
+        "devnet",
+        new Connection(clusterApiUrl("devnet")),
+        Keypair.fromSeed(new Uint8Array(32).fill(1)) // using dummy keypair since we wont be submitting any transactions
+      );
+  // load the switchboard aggregator
+  const aggregator = new AggregatorAccount({
+    program,
+    publicKey: DEFAULT_SOL_USD_FEED,
+  });
+
+  // get the result
+  const result = await aggregator.getLatestValue();
+  console.log(`Switchboard Result: ${result}`);
+}
+
+
+main().then(
+    () => process.exit(),
+    (err) => {
+      console.error("Failed to parse Switchboard Feed");
+      console.error(err);
+      process.exit(-1);
+    }
+  );
