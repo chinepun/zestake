@@ -105,7 +105,9 @@ describe("zestake", () => {
       xMint: x_mint,
       xStakeAccount: provider_x_mint_token_account.address,
       tokenProgram: TOKEN_PROGRAM_ID,
-      systemProgram: anchor.web3.SystemProgram.programId
+      systemProgram: anchor.web3.SystemProgram.programId,
+      rent: SYSVAR_RENT_PUBKEY,
+      clock: SYSVAR_CLOCK_PUBKEY,
     })
     // .instruction([
     //   await program.account.usern.createInstruction(
@@ -270,7 +272,9 @@ describe("zestake", () => {
       xMint: x_mint,
       xStakeAccount: attacker_x_token_account.address,
       tokenProgram: TOKEN_PROGRAM_ID,
-      systemProgram: anchor.web3.SystemProgram.programId
+      systemProgram: anchor.web3.SystemProgram.programId,
+      rent: SYSVAR_RENT_PUBKEY,
+      clock: SYSVAR_CLOCK_PUBKEY,
     })
     .signers([attacker, attacker_user])
     .rpc();

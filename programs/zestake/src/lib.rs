@@ -197,8 +197,8 @@ pub struct CreateUser<'info>
     #[account(address = token::ID)]
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>, 
-    // pub rent: Sysvar<'info, Rent>,
-    // pub clock: Sysvar<'info, Clock>,
+    pub rent: Sysvar<'info, Rent>,
+    pub clock: Sysvar<'info, Clock>,
 }
 
 #[derive(Accounts)]
@@ -276,7 +276,7 @@ pub struct UnStake<'info>
     )]
     program_authority_stake_account: Account<'info, TokenAccount>,
 
-    #[account(mut, has_one = owner)]
+    #[account(mut, has_one = owner, constraint = user.owner == owner.key())]
     user: Box<Account<'info, User>>,
 
     mint: Box<Account<'info, Mint>>,
