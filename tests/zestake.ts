@@ -227,7 +227,7 @@ describe("zestake", () => {
 
       console.log("stake signature is ", tx);
     }catch(err){
-      const errMsg = "A has one constraint was violated";
+      const errMsg = "Wrong Owner Passed in, are you trying to hack your way in???";
       assert.equal((err as AnchorError).error.errorMessage, errMsg)
     }
   });
@@ -483,7 +483,7 @@ describe("zestake", () => {
       ], program.programId
     );
     const fake_owner_keypair = anchor.web3.Keypair.generate();
-    
+
     const transaction = new anchor.web3.Transaction().add(
       anchor.web3.SystemProgram.transfer({
           fromPubkey: provider.wallet.publicKey,
@@ -517,7 +517,7 @@ describe("zestake", () => {
       .rpc();
     }catch(err) 
     {
-      const errMsg = "A has one constraint was violated";
+      const errMsg = "Wrong Owner Passed in, are you trying to hack your way in???";
       assert.equal((err as AnchorError).error.errorMessage, errMsg)
 
     }

@@ -38,16 +38,10 @@ pub mod zestake {
         {
             return Err(ErrorCode::AccountInvalid.into());
         }
+        require!(ctx.accounts.mint_tokens.amount > amount, ErrorCode::TryingToWithdrawMoreThanYouOwn);
         // TODO- not safe, can oveflow or underflow(.checked_add(amount as u8).unwrap)
         user.amount_staked += amount;
         user.last_staked_time = Clock::get()?.unix_timestamp;
-// TODO - take this if statement upwards, user cannot be increasing stake even if user does not have enough tokens
-        if ctx.accounts.mint_tokens.amount < amount
-        {
-            return Err(ErrorCode::TryingToWithdrawMoreThanYouOwn.into())
-        }
-msg!("user has {} tokens before transfer", ctx.accounts.mint_tokens.amount);
-msg!("pda has {} tokens before transfer", ctx.accounts.program_authority_stake_account.amount);
 
 // Transfer tokens to pda vault
         {
@@ -61,7 +55,8 @@ msg!("pda has {} tokens before transfer", ctx.accounts.program_authority_stake_a
             );
             // TODO -THIS COULD RETURN ERR
             let transfer = token::transfer(cpi_ctx, amount);
-            
+            // ctx.accounts.mint_tokens.reload()?;
+            // ctx.accounts.program_authority_stake_account.reload()?;
             match transfer
             {
                 Ok(_) => msg!("Successful Transfer"),
@@ -70,12 +65,6 @@ msg!("pda has {} tokens before transfer", ctx.accounts.program_authority_stake_a
 
             msg!("i think i just sent {} of {} tokens to pda(token) {} whose authority is pda {}", amount, ctx.accounts.mint_tokens.owner, ctx.accounts.program_authority_stake_account.key(), ctx.accounts.program_authority.key());
         }
-        //mint x_mint_tokens on the frontend to the user x_stake_account
-
-
-        // msg!("user has {} tokens after transfer", ctx.accounts.mint_tokens.amount);
-        // msg!("pda has {} tokens after transfer", ctx.accounts.program_authority_stake_account.amount);
-
         
         Ok(())
     }
@@ -174,7 +163,7 @@ pub struct CreateUser<'info>
     )]
     user: Box<Account<'info, User>>,
 
-    #[account(address = mint_address)]
+    #[account(address = mint_address @ ErrorCode::InValidMintAddress)]
     mint: Box<Account<'info, Mint>>,
 
     #[account(mut,
@@ -183,7 +172,7 @@ pub struct CreateUser<'info>
     )]
     stake_account: Box<Account<'info, TokenAccount>>,
         
-    #[account(address = x_mint_address)]
+    #[account(address = x_mint_address @ ErrorCode::InValidMintAddress)]
     x_mint: Box<Account<'info, Mint>>,
 
     #[account(mut,
@@ -229,7 +218,7 @@ pub struct Stake<'info>
     )]
     program_authority_stake_account: Account<'info, TokenAccount>,
 
-    #[account(mut, has_one = owner)]
+    #[account(mut, has_one = owner @ ErrorCode::WrongOwnerPassed)]
     user: Box<Account<'info, User>>,
 
     mint: Box<Account<'info, Mint>>,
@@ -276,13 +265,13 @@ pub struct UnStake<'info>
     )]
     program_authority_stake_account: Account<'info, TokenAccount>,
 
-    #[account(mut, has_one = owner, constraint = user.owner == owner.key())]
+    #[account(mut, constraint = user.owner == owner.key() @ ErrorCode::WrongOwnerPassed)]
     user: Box<Account<'info, User>>,
 
     mint: Box<Account<'info, Mint>>,
     x_mint: Box<Account<'info, Mint>>,
 
-    #[account(mut, constraint = mint_tokens.mint == mint.key())]
+    #[account(mut, constraint = mint_tokens.mint == mint.key() @ ErrorCode::AccountInvalid)]
     mint_tokens: Account<'info, TokenAccount>,
     #[account(mut, constraint = x_mint_tokens.mint == x_mint.key())]
     x_mint_tokens: Account<'info, TokenAccount>,
@@ -353,4 +342,6 @@ pub enum ErrorCode
     InValidPredictAccountOwner,
     #[msg("Token Transfer was not successful")]
     TransferNotSuccessful,
+    #[msg("Invalid Mint Address")]
+    InValidMintAddress,
 }
